@@ -21,11 +21,11 @@ RUN set -ex && \
         gpg --keyserver keyserver.pgp.com --recv-keys "$key" ; \
     done && \
     cd /tmp/ && \
-    wget -q https://dl.influxdata.com/influxdb/nightlies/influxdb-static-nightly_linux_amd64.tar.gz.asc && \
-    wget -q https://dl.influxdata.com/influxdb/nightlies/influxdb-static-nightly_linux_armhf.tar.gz && \
-    gpg --batch --verify influxdb-static-nightly_linux_amd64.tar.gz.asc influxdb-static-nightly_linux_armhf.tar.gz && \
+    wget -q https://dl.influxdata.com/influxdb/nightlies/influxdb-nightly_linux_armhf.tar.gz.asc && \
+    wget -q https://dl.influxdata.com/influxdb/nightlies/influxdb-nightly_linux_armhf.tar.gz && \
+    gpg --batch --verify influxdb-nightly_linux_amd64.tar.gz.asc influxdb-nightly_linux_armhf.tar.gz && \
     mkdir -p /usr/src && \
-    tar -C /usr/src -xzf influxdb-static-nightly_linux_armhf.tar.gz && \
+    tar -C /usr/src -xzf influxdb-nightly_linux_armhf.tar.gz && \
     rm -f /usr/src/influxdb-*/influxdb.conf && \
     chmod +x /usr/src/influxdb-*/* && \
     cp -a /usr/src/influxdb-*/* /usr/bin/ && \
