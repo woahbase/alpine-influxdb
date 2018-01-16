@@ -27,14 +27,16 @@ BUILDFLAGS := --rm --force-rm --compress -f $(CURDIR)/Dockerfile_$(ARCH) -t $(IM
 	--label org.label-schema.build-date=$(shell date -u +"%Y-%m-%dT%H:%M:%SZ") \
 	--label org.label-schema.name=$(DOCKEREPO) \
 	--label org.label-schema.schema-version="1.0" \
+	--label org.label-schema.url="https://woahbase.online/" \
+	--label org.label-schema.usage="https://woahbase.online/\#/images/$(DOCKEREPO)" \
 	--label org.label-schema.vcs-ref=$(shell git rev-parse --short HEAD) \
 	--label org.label-schema.vcs-url="https://github.com/$(USERNAME)/$(DOCKEREPO)" \
 	--label org.label-schema.vendor=$(USERNAME)
 
 CACHEFLAGS := --no-cache=true --pull
-MOUNTFLAGS := -v $(CURDIR)/data:/var/lib/influxdb
+MOUNTFLAGS := # -v $(CURDIR)/data:/var/lib/influxdb
 NAMEFLAGS  := --name docker_$(SVCNAME) --hostname $(SVCNAME)
-OTHERFLAGS := -v /etc/hosts:/etc/hosts:ro -v /etc/localtime:/etc/localtime:ro # -e TZ=Asia/Kolkata
+OTHERFLAGS := # -v /etc/hosts:/etc/hosts:ro -v /etc/localtime:/etc/localtime:ro # -e TZ=Asia/Kolkata
 PORTFLAGS  := -p 8086:8086 -p 8088:8088 -p 4242:4242
 PROXYFLAGS := --build-arg http_proxy=$(http_proxy) --build-arg https_proxy=$(https_proxy) --build-arg no_proxy=$(no_proxy)
 
