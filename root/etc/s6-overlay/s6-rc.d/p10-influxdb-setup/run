@@ -1,0 +1,28 @@
+#!/usr/bin/with-contenv bash
+set -e
+
+INFLUXDB_HOME="${INFLUXDB_HOME:-/var/lib/influxdb}";
+INFLUXDB_CONFIG_PATH="${INFLUXDB_CONFIG_PATH:-/etc/influxdb.conf}";
+
+# ensure influxdb conf exists
+if [ ! -f "${INFLUXDB_CONFIG_PATH}" ];
+then
+    cp /defaults/influxdb.conf ${INFLUXDB_CONFIG_PATH};
+fi;
+
+mkdir -p \
+    ${INFLUXDB_HOME}/data \
+    ${INFLUXDB_HOME}/meta \
+    ${INFLUXDB_HOME}/wal \
+    ;
+
+# fix permissions
+find ${INFLUXDB_HOME} \
+    \! -user ${S6_USER:-alpine} -exec \
+    chown --no-dereference \
+    ${S6_USER:-alpine}:${S6_USER:-alpine} \
+    '{}' +;
+# chown -R ${S6_USER:-alpine}:${S6_USER:-alpine} \
+#     ${INFLUXDB_HOME}
+#     ;
+

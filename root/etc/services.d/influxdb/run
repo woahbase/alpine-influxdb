@@ -1,4 +1,0 @@
-#!/usr/bin/with-contenv bash
-chown -R influxdb:influxdb /var/lib/influxdb
-
-s6-setuidgid influxdb exec influxd -config /etc/influxdb.conf

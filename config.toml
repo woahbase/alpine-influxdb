@@ -1,0 +1,3 @@
+[registry."dist.net.lo"]
+  # http = true
+  insecure = true
