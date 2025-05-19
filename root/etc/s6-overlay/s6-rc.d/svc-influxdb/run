@@ -8,4 +8,5 @@ s6-setuidgid ${S6_USER:-alpine} \
 exec \
     influxd run \
     -config "${INFLUXDB_CONFIG_PATH}" \
-    ${INFLUXDB_ARGS}
+    ${INFLUXDB_ARGS} \
+    ;

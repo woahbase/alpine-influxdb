@@ -1,28 +1,31 @@
 #!/usr/bin/with-contenv bash
 set -e
 
+vecho () { if [ "${S6_VERBOSITY:-1}" -gt 0 ]; then echo "[$0] $@"; fi; }
+
 INFLUXDB_HOME="${INFLUXDB_HOME:-/var/lib/influxdb}";
 INFLUXDB_CONFIG_PATH="${INFLUXDB_CONFIG_PATH:-/etc/influxdb.conf}";
+
+vecho "Ensure configuration directories exist";
+mkdir -p \
+    "${INFLUXDB_HOME}/data" \
+    "${INFLUXDB_HOME}/meta" \
+    "${INFLUXDB_HOME}/wal" \
+    "$(dirname ${INFLUXDB_CONFIG_PATH})" \
+    ;
 
 # ensure influxdb conf exists
 if [ ! -f "${INFLUXDB_CONFIG_PATH}" ];
 then
-    cp /defaults/influxdb.conf ${INFLUXDB_CONFIG_PATH};
+    vecho "Copying default config as ${INFLUXDB_CONFIG_PATH}";
+    cp /defaults/influxdb.conf "${INFLUXDB_CONFIG_PATH}";
 fi;
 
-mkdir -p \
-    ${INFLUXDB_HOME}/data \
-    ${INFLUXDB_HOME}/meta \
-    ${INFLUXDB_HOME}/wal \
-    ;
-
 # fix permissions
-find ${INFLUXDB_HOME} \
+vecho "Fixing permissions.";
+find "${INFLUXDB_HOME}" "${INFLUXDB_CONFIG_PATH}" \
     \! -user ${S6_USER:-alpine} -exec \
     chown --no-dereference \
-    ${S6_USER:-alpine}:${S6_USER:-alpine} \
+    ${S6_USER:-alpine}:${PGID:-1000} \
     '{}' +;
-# chown -R ${S6_USER:-alpine}:${S6_USER:-alpine} \
-#     ${INFLUXDB_HOME}
-#     ;
 
