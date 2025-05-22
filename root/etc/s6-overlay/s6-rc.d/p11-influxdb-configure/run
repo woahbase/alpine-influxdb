@@ -1,0 +1,204 @@
+#!/usr/bin/with-contenv bash
+set -e
+
+vecho () { if [ "${S6_VERBOSITY:-1}" -gt 0 ]; then echo "[$0] $@"; fi; }
+
+if [ -n "${INFLUXDB_SKIP_INITIALIZE}" ]; then exit 0; fi;
+# else init database only if meta.db does not exist
+
+# initialization parameters
+INFLUXDB_HOME="${INFLUXDB_HOME:-/var/lib/influxdb}";
+# INFLUXDB_DB="${INFLUXDB_DB:-test}"; # only created during initializing, not after
+
+# INFLUXDB_HTTP_AUTH_ENABLED="${INFLUXDB_HTTP_AUTH_ENABLED:-true}"; # unset by default
+INFLUXDB_ADMIN_USER="${INFLUXDB_ADMIN_USER:-influxadmin}"; # unset by default, required for initialization
+# INFLUXDB_ADMIN_PWD="${INFLUXDB_ADMIN_PWD:-insecurebydefault}"; # unset by default, required for initialization
+INFLUXDB_USER="${INFLUXDB_USER:-influxuser}";
+# INFLUXDB_USER_PWD="${INFLUXDB_USER_PWD:-insecurebydefault}"; # unset by default, optional for initialization
+INFLUXDB_USER_GRANTS="${INFLUXDB_USER_GRANTS:-ALL}";
+INFLUXDB_HEALTHCHECK_USER="${INFLUXDB_HEALTHCHECK_USER:-influxhc}";
+# INFLUXDB_HEALTHCHECK_USER_PWD="${INFLUXDB_HEALTHCHECK_USER_PWD:-insecurebydefault}"; # unset by default, optional for initialization
+INFLUXDB_HEALTHCHECK_USER_GRANTS="${INFLUXDB_HEALTHCHECK_USER_GRANTS:-READ}";
+INFLUXDB_READ_USER="${INFLUXDB_READ_USER:-influxr}";
+# INFLUXDB_READ_USER_PWD="${INFLUXDB_READ_USER_PWD:-insecurebydefault}"; # unset by default, optional for initialization
+INFLUXDB_READ_USER_GRANTS="${INFLUXDB_READ_USER_GRANTS:-READ}";
+INFLUXDB_WRITE_USER="${INFLUXDB_WRITE_USER:-influxw}";
+# INFLUXDB_WRITE_USER_PWD="${INFLUXDB_WRITE_USER_PWD:-insecurebydefault}"; # unset by default, optional for initialization
+INFLUXDB_WRITE_USER_GRANTS="${INFLUXDB_WRITE_USER_GRANTS:-WRITE}";
+
+# all influx commands are run as ${S6_USER:-alpine}
+
+if [ ! -e "${INFLUXDB_HOME}/meta/meta.db" ];
+then
+
+    AUTH_ENABLED="${INFLUXDB_HTTP_AUTH_ENABLED}";
+    if [ -z "${AUTH_ENABLED}" ];
+    then
+        AUTH_ENABLED="$(grep -iE '^\s*auth-enabled\s*=\s*true' ${INFLUXDB_CONFIG_PATH} | grep -io 'true' | cat)";
+    else
+        AUTH_ENABLED="$(echo "${INFLUXDB_HTTP_AUTH_ENABLED}" | grep -io 'true' | cat)";
+    fi;
+
+    vecho "HTTP Authentication is ${AUTH_ENABLED:-not set}";
+
+    if [ -n "${AUTH_ENABLED}" ] && [ -z "${INFLUXDB_ADMIN_PWD}" ];
+    then
+        vecho "When \$INFLUXDB_HTTP_AUTH_ENABLED is set,";
+        vecho "\$INFLUXDB_ADMIN_PWD is required to initialize database.";
+        vecho "Exiting.";
+        exit 1;
+    fi;
+
+    vecho "Starting temp-server for initialize.";
+    s6-setuidgid ${S6_USER:-alpine} \
+        /scripts/run.sh \
+            temp-server-start \
+        ;
+
+    # for admin user creation it must be the first command that is
+    # run on the freshly initialized db
+    if [ -n "${AUTH_ENABLED}" ] && [ -n "${INFLUXDB_ADMIN_USER}" ] && [ -n "${INFLUXDB_ADMIN_PWD}" ];
+    then
+        INIT_QUERY="CREATE USER \"${INFLUXDB_ADMIN_USER}\" WITH PASSWORD '${INFLUXDB_ADMIN_PWD}' WITH ALL PRIVILEGES";
+    elif [ -n "${INFLUXDB_DB}" ];
+    then
+        INIT_QUERY="CREATE DATABASE ${INFLUXDB_DB}";
+    else
+        vecho "No user/database specified to be created during initialization.";
+    fi;
+
+    s6-setuidgid ${S6_USER:-alpine} \
+        /scripts/run.sh \
+            wait-server-ready \
+            "${INIT_QUERY}" \
+        ;
+
+    vecho "Completed initialization.";
+
+    if [ -n "${INFLUXDB_SKIP_BOOTSTRAP}" ]; then exit 0; fi;
+
+    # default args for influx
+    INFLUX_ARGS="-host 127.0.0.1 -port ${INFLUXDB_INIT_PORT:-8086}";
+    _influx () { s6-setuidgid ${S6_USER:-alpine} influx ${INFLUX_ARGS} -execute "$@"; }
+
+    if [ -n "${AUTH_ENABLED}" ]; # continue creating db and other users
+    then
+        # append auth to executor command
+        INFLUX_ARGS="${INFLUX_ARGS} -username ${INFLUXDB_ADMIN_USER} -password ${INFLUXDB_ADMIN_PWD}";
+
+        if [ -n "${INFLUXDB_DB}" ]; # ensure we create the db
+        then
+            vecho "Ensure database exists: ${INFLUXDB_DB}";
+            _influx \
+                "CREATE DATABASE ${INFLUXDB_DB}";
+        fi;
+
+        if [ -n "${INFLUXDB_USER}" ] && [ -n "${INFLUXDB_USER_PWD}" ];
+        then
+            vecho "Ensure user exists: ${INFLUXDB_USER} (Grants: ${INFLUXDB_USER_GRANTS}${INFLUXDB_DB:+ ON \"${INFLUXDB_DB}\"})";
+            _influx \
+                "CREATE USER \"${INFLUXDB_USER}\" WITH PASSWORD '${INFLUXDB_USER_PWD}'";
+            _influx \
+                "REVOKE ALL PRIVILEGES FROM \"${INFLUXDB_USER}\"";
+
+            if [ "${INFLUXDB_USER_GRANTS}" == 'ADMIN' ]; # admin user
+            then
+                _influx \
+                    "GRANT ALL PRIVILEGES TO \"${INFLUXDB_USER}\"";
+            elif [ "${INFLUXDB_USER_GRANTS}" == 'ALL' ]; # db optional if grant is ALL
+            then
+                _influx \
+                    "GRANT ${INFLUXDB_USER_GRANTS} ${INFLUXDB_DB:+ON \"${INFLUXDB_DB}\"} TO \"${INFLUXDB_USER}\"";
+            elif [ -n "${INFLUXDB_DB}" ]; # db required if grant is READ/WRITE for non-admin user
+            then
+                _influx \
+                    "GRANT ${INFLUXDB_USER_GRANTS} ON \"${INFLUXDB_DB}\" TO \"${INFLUXDB_USER}\"";
+            else
+                vecho "Grants is not ALL and database is not specified.";
+                vecho "You will need to manually set grants for user: ${INFLUXDB_USER}";
+            fi;
+        fi;
+
+        if [ -n "${INFLUXDB_HEALTHCHECK_USER}" ] && [ -n "${INFLUXDB_HEALTHCHECK_USER_PWD}" ];
+        then
+            vecho "Ensure user exists: ${INFLUXDB_HEALTHCHECK_USER} (Grants: ${INFLUXDB_HEALTHCHECK_USER_GRANTS}${INFLUXDB_DB:+ ON \"${INFLUXDB_DB}\"})";
+            _influx \
+                "CREATE USER \"${INFLUXDB_HEALTHCHECK_USER}\" WITH PASSWORD '${INFLUXDB_HEALTHCHECK_USER_PWD}'";
+            _influx \
+                "REVOKE ALL PRIVILEGES FROM \"${INFLUXDB_HEALTHCHECK_USER}\"";
+
+            if [ "${INFLUXDB_HEALTHCHECK_USER_GRANTS}" == 'ALL' ]; # db optional if grant is ALL, i.e. admin user
+            then
+                _influx \
+                    "GRANT ${INFLUXDB_HEALTHCHECK_USER_GRANTS} ${INFLUXDB_DB:+ON \"${INFLUXDB_DB}\"} TO \"${INFLUXDB_HEALTHCHECK_USER}\"";
+            elif [ -n "${INFLUXDB_DB}" ]; # db required if grant is not READ/WRITE for non-admin user
+            then
+                _influx \
+                    "GRANT ${INFLUXDB_HEALTHCHECK_USER_GRANTS} ON \"${INFLUXDB_DB}\" TO \"${INFLUXDB_HEALTHCHECK_USER}\"";
+            else
+                vecho "Grants is not ALL and database is not specified.";
+                vecho "You will need to manually set grants for user: ${INFLUXDB_HEALTHCHECK_USER}";
+            fi;
+        fi;
+
+        if [ -n "${INFLUXDB_READ_USER}" ] && [ -n "${INFLUXDB_READ_USER_PWD}" ];
+        then
+            vecho "Ensure user exists: ${INFLUXDB_READ_USER} (Grants: ${INFLUXDB_READ_USER_GRANTS}${INFLUXDB_DB:+ ON \"${INFLUXDB_DB}\"})";
+            _influx \
+                "CREATE USER \"${INFLUXDB_READ_USER}\" WITH PASSWORD '${INFLUXDB_READ_USER_PWD}'";
+            _influx \
+                "REVOKE ALL PRIVILEGES FROM \"${INFLUXDB_READ_USER}\"";
+
+            if [ "${INFLUXDB_READ_USER_GRANTS}" == 'ALL' ]; # db optional if grant is ALL, i.e. admin user
+            then
+                _influx \
+                    "GRANT ${INFLUXDB_READ_USER_GRANTS} ${INFLUXDB_DB:+ON \"${INFLUXDB_DB}\"} TO \"${INFLUXDB_READ_USER}\"";
+            elif [ -n "${INFLUXDB_DB}" ]; # db required if grant is not READ/WRITE for non-admin user
+            then
+                _influx \
+                    "GRANT ${INFLUXDB_READ_USER_GRANTS} ON \"${INFLUXDB_DB}\" TO \"${INFLUXDB_READ_USER}\"";
+            else
+                vecho "Grants is not ALL and database is not specified.";
+                vecho "You will need to manually set grants for user: ${INFLUXDB_READ_USER}";
+            fi;
+        fi;
+
+        if [ -n "${INFLUXDB_WRITE_USER}" ] && [ -n "${INFLUXDB_WRITE_USER_PWD}" ];
+        then
+            vecho "Ensure user exists: ${INFLUXDB_WRITE_USER} (Grants: ${INFLUXDB_WRITE_USER_GRANTS}${INFLUXDB_DB:+ ON \"${INFLUXDB_DB}\"})";
+            _influx \
+                "CREATE USER \"${INFLUXDB_WRITE_USER}\" WITH PASSWORD '${INFLUXDB_WRITE_USER_PWD}'";
+            _influx \
+                "REVOKE ALL PRIVILEGES FROM \"${INFLUXDB_WRITE_USER}\"";
+
+            if [ "${INFLUXDB_WRITE_USER_GRANTS}" == 'ALL' ]; # db optional if grant is ALL, i.e. admin user
+            then
+                _influx \
+                    "GRANT ${INFLUXDB_WRITE_USER_GRANTS} ${INFLUXDB_DB:+ON \"${INFLUXDB_DB}\"} TO \"${INFLUXDB_WRITE_USER}\"";
+            elif [ -n "${INFLUXDB_DB}" ]; # db required if grant is not READ/WRITE for non-admin user
+            then
+                _influx \
+                    "GRANT ${INFLUXDB_WRITE_USER_GRANTS} ON \"${INFLUXDB_DB}\" TO \"${INFLUXDB_WRITE_USER}\"";
+            else
+                vecho "Grants is not ALL and database is not specified.";
+                vecho "You will need to manually set grants for user: ${INFLUXDB_WRITE_USER}";
+            fi;
+        fi;
+    fi;
+
+    s6-setuidgid ${S6_USER:-alpine} \
+        /scripts/run.sh \
+            initdb \
+            ${INFLUX_ARGS[@]} \
+            ${INFLUXDB_DB:+ -database "${INFLUXDB_DB}"} \
+        ;
+
+    s6-setuidgid ${S6_USER:-alpine} \
+        /scripts/run.sh \
+            temp-server-stop \
+        ;
+    vecho "Completed bootstrap.";
+fi
+
+vecho "Sleeping 1 sec before starting service...";
+sleep 1;

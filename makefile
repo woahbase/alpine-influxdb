@@ -80,6 +80,9 @@ BUILDERFLAGS ?= \
 # runtime flags
 MOUNTFLAGS := \
 	# -v $(CURDIR)/data:/var/lib/influxdb \
+	# -v $(CURDIR)/data/backups:/var/lib/influxdb/backups \
+	# -v $(CURDIR)/data/initdb.d:/var/lib/influxdb/initdb.d \
+	# -v $(CURDIR)/root/scripts:/scripts \
 	# -v /etc/hosts:/etc/hosts:ro \
 	# -v /etc/localtime:/etc/localtime:ro \
 	#
@@ -102,14 +105,28 @@ OTHERFLAGS := \
 	-m 512m \
 	-e PGID=$(PGID) \
 	-e PUID=$(PUID) \
+	# \
 	# -e TZ=Asia/Kolkata \
+	# -e INFLUXDB_DB=test \
+	# \
 	# # auth disabled by default
 	# -e INFLUXDB_HTTP_AUTH_ENABLED=true \
-	# # after enabling, db/users need to be created manually
-	# -e INFLUXDB_ADMIN_USER=root \
-	# -e INFLUXDB_ADMIN_USER_PWD=insecurebydefaultroot \
-	# -e INFLUXDB_USER=influx \
-	# -e INFLUXDB_USER_PWD=insecurebydefaultinflux \
+	# # after enabling, users can be created
+	# -e INFLUXDB_ADMIN_USER=influxadmin \
+	# -e INFLUXDB_ADMIN_PWD=insecurebydefaultroot \
+	# -e INFLUXDB_USER=influxuser \
+	# -e INFLUXDB_USER_PWD=insecurebydefault \
+	# -e INFLUXDB_USER_GRANTS=ALL \
+	# -e INFLUXDB_HEALTHCHECK_USER=influxhc \
+	# -e INFLUXDB_HEALTHCHECK_USER_PWD=insecurebydefault \
+	# -e INFLUXDB_HEALTHCHECK_USER_GRANTS=READ \
+	# -e INFLUXDB_READ_USER=influxr \
+	# -e INFLUXDB_READ_USER_PWD=insecurebydefault \
+	# -e INFLUXDB_READ_USER_GRANTS=READ \
+	# -e INFLUXDB_WRITE_USER=influxw \
+	# -e INFLUXDB_WRITE_USER_PWD=insecurebydefault \
+	# -e INFLUXDB_WRITE_USER_GRANTS=WRITE \
+	# -e DEBUG=1 \
 	#
 # all runtime flags combined here
 RUNFLAGS   := \

@@ -21,7 +21,7 @@ RUN set -xe \
     && apk add --no-cache \
         --repositories-file "/tmp/repo3.17" \
         influxdb \
-    && update-ca-certificates \
+    # && update-ca-certificates \
     && mkdir -p \
         /defaults \
         ${INFLUXDB_HOME} \
@@ -44,6 +44,7 @@ HEALTHCHECK \
     --start-period=5m \
     --timeout=10s \
     CMD \
+        s6-setuidgid ${S6_USER:-alpine} \
         /scripts/run.sh healthcheck \
     || exit 1
 #
